@@ -1,0 +1,5 @@
+https://www.deviceplus.com/raspberry-pi/integrate-rfid-module-raspberry-pi/
+https://www.teachmemicro.com/using-rfid-with-raspberry-pi-zero/
+https://www.adafruit.com/product/3191
+
+https://www.adafruit.com/product/828
