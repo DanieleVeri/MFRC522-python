@@ -41,7 +41,7 @@ def rfc_loop(state, current):
         (status,TagType) = MIFAREReader.MFRC522_Request(MIFAREReader.PICC_REQIDL)
         if status == MIFAREReader.MI_OK:
             print("Card detected")
-        print('aoo')
+        
         (status,uid) = MIFAREReader.MFRC522_Anticoll()
         if status != MIFAREReader.MI_OK:
             continue
@@ -158,7 +158,7 @@ class http_server:
         server.serve_forever()
 
 def run_server(state):
-    http_server(state, '0.0.0.0', 8000)
+    http_server(state, '0.0.0.0', 80)
 
 def actuator_loop(state, current):
     def end_read(signal,frame):
