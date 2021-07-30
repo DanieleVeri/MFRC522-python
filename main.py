@@ -3,7 +3,7 @@ import MFRC522
 import time
 import signal
 import pickle
-from urlparse import urlparse, parse_qs
+from urlparse import parse_qs
 from multiprocessing import Process, Manager
 from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler
 
@@ -26,7 +26,7 @@ def load_state():
             s["%02d" % (i,)] =  ['', False, 0]
     return s
 
-def rfc_loop(state):
+def rfc_loop(state, current):
     def end_read(signal,frame):
         global continue_reading
         print("Ctrl+C captured, ending read.")
@@ -37,35 +37,20 @@ def rfc_loop(state):
     global continue_reading
     MIFAREReader = MFRC522.MFRC522()
 
-    # This loop keeps checking for chips. If one is near it will get the UID and authenticate
     while continue_reading:
-        
-        # Scan for cards    
         (status,TagType) = MIFAREReader.MFRC522_Request(MIFAREReader.PICC_REQIDL)
-
-        # If a card is found
         if status == MIFAREReader.MI_OK:
             print("Card detected")
-        
-        # Get the UID of the card
+        print('aoo')
         (status,uid) = MIFAREReader.MFRC522_Anticoll()
-
-        # If we have the UID, continue
         if status != MIFAREReader.MI_OK:
             continue
 
-        # Print UID
         print("Card read UID: %s,%s,%s,%s" % (uid[0], uid[1], uid[2], uid[3]))
-        
-        ## Select the scanned tag
         MIFAREReader.MFRC522_SelectTag(uid)
 
-        # This is the default key for authentication
         key = [0xFF]*6
-        # Authenticate
         status = MIFAREReader.MFRC522_Auth(MIFAREReader.PICC_AUTHENT1B, 4, key, uid)
-
-        # Check if authenticated
         if status != MIFAREReader.MI_OK:
             print("Authentication error")
             continue
@@ -85,29 +70,38 @@ def rfc_loop(state):
                 continue
 
             print("enabling access to {} for {} minutes".format(num, state['time']))
-            state[num] = [state[num][0], state[num][1], state[num][2]+1]
+            current['who'] = num
+            current['stop'] = int(time.time()) + state['time']*60
+
         except Exception as e:
             print(e)
             continue
+
 def ui(state):
-    html = "<form action='/update' method='post'>Durata attivazione: \
+    html = "<h1>Pannello di controllo</h1><form action='/update' style='width:100%' method='post'>Durata attivazione: \
         <input type='number' name='time' value='{}'><br/>".format(state['time'])
-    html += '<table><tr><th>Numero</th><th>Nome</th><th>Abilitato</th><th>Usi</th></tr>'
+    html += '<table style="width:100%;font-size: 25px;"><tr><th>Numero</th><th>Nome</th><th>Abilitato</th><th>Usi</th></tr>'
     keys = state.keys()
     keys.sort()
+    tot=1
+    for k in keys:
+        if k=='time':
+            continue
+        tot += state[k][2]
     for k in keys:
         if k=='time':
             continue
         html += "<tr>"
         html += "<td>{}</td>\
-            <td><input type='text' name='name_{}' value='{}'></td>\
+            <td><input style='font-size: 25px;' type='text' name='name_{}' value='{}'></td>\
             <td><select name='state_{}'><option value='Si' {}>Si</option><option value='No' {}>No</option></select></td>\
-            <td>{}</td>".format(
-                k, k, state[k][0], k, 'selected' if state[k][1] else '', 'selected' if not state[k][1] else '', state[k][2])
+            <td>{} min ({:.2f}%)</td>".format(
+                k, k, state[k][0], k, 'selected' if state[k][1] else '', 'selected' if not state[k][1] else '', state[k][2]//60,
+                state[k][2]*100.0/tot)
         html += "</tr>"
     html +="</table><br/>"
-    html +="<input type='text' name='reset' value='scrivi \"reset\" e poi Applica per azzerare gli utilizzi'>"
-    html += "<input type='submit' value='Applica'></form>"
+    html +="<input type='text' style='width:100%; font-size: 25px;' name='reset' value='scrivi \"reset\" per azzerare gli utilizzi'><br/>"
+    html += "<input type='submit' style='width:100%; font-size: 35px;' value='Applica'></form>"
     return html
 
 class S(BaseHTTPRequestHandler):
@@ -121,7 +115,7 @@ class S(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _html(self, message):
-        content = "<html><body>{}</body></html>".format(message)
+        content = "<html><body style='font-size: 25px;'>{}</body></html>".format(message)
         return content.encode("utf8")  # NOTE: must return a bytes object!
 
     def do_GET(self):
@@ -166,29 +160,51 @@ class http_server:
 def run_server(state):
     http_server(state, '0.0.0.0', 8000)
 
-#GPIO.output(actuator_pin, GPIO.HIGH)
-#GPIO.output(actuator_pin, GPIO.LOW)
+def actuator_loop(state, current):
+    def end_read(signal,frame):
+        GPIO.cleanup()
+    signal.signal(signal.SIGINT, end_read)
+
+    last_save=int(time.time())
+    while True:
+        now = int(time.time())
+        delta = current['stop'] - now
+        if delta <= 0:
+            GPIO.output(actuator_pin, GPIO.LOW)
+        else:
+            GPIO.output(actuator_pin, GPIO.HIGH)
+            state[current['who']] = [state[current['who']][0], 
+                                    state[current['who']][1], 
+                                    state[current['who']][2]+1]
+        if now - last_save > 60*30:
+            print("persisting state")
+            save_state(dict(state))
+            last_save = now
+            
+        time.sleep(1)
 
 def main():
     GPIO.setmode(GPIO.BOARD)
     GPIO.setup(actuator_pin, GPIO.OUT)
+    GPIO.output(actuator_pin, GPIO.LOW)
 
-    s = load_state()
     manager = Manager()
-    state = manager.dict(s)
+    state = manager.dict(load_state())
+    current = manager.dict({'who': None, 'stop': 0})
 
-    # Welcome message
-    print("Welcome to the MFRC522 data read example")
-    print("Press Ctrl-C to stop.")
-
-    rfc_worker = Process(target=rfc_loop, args=(state,))
+    rfc_worker = Process(target=rfc_loop, args=(state,current,))
     http_worker = Process(target=run_server, args=(state,))
+    act_worker = Process(target=actuator_loop, args=(state, current,))
+    
+    print("Press Ctrl-C to stop.")
     
     rfc_worker.start()
     http_worker.start()
+    act_worker.start()
 
     rfc_worker.join()
     http_worker.join()
+    act_worker.join()
 
 if __name__ == '__main__':
     main()
