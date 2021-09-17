@@ -58,8 +58,8 @@ def rfc_loop(state, current):
         data = MIFAREReader.MFRC522_Read(4)
         MIFAREReader.MFRC522_StopCrypto1()
 
-        prefix = ''.join([chr(c) for c in data[7:-4]])
-        num = ''.join([chr(c) for c in data[-4:-2]])
+        prefix = ''.join([chr(c) for c in data[5:-6]])
+        num = ''.join([chr(c) for c in data[-6:-4]])
 
         if prefix != 'cpd/v':
             print('prefix error')
