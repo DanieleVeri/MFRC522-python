@@ -83,11 +83,12 @@ def ui(state):
     html += '<table style="width:100%;font-size: 25px;"><tr><th>Numero</th><th>Nome</th><th>Abilitato</th><th>Usi</th></tr>'
     keys = state.keys()
     keys.sort()
-    tot=1
+    tot=0
     for k in keys:
         if k=='time':
             continue
         tot += state[k][2]
+    tot = tot if tot>0 else 1
     for k in keys:
         if k=='time':
             continue
